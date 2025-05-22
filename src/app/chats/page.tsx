@@ -109,7 +109,7 @@ export default function ChatsPage() {
         const { data: conversation, error: convError } = await supabase
           .from('conversations')
           .select('id')
-          .or(`participants.cs.{${currentUser.id},${selectedUser.id}}`)
+          .or(`and(participants.cs.{${currentUser.id}},participants.cs.{${selectedUser.id}})`)
           .single()
 
         if (convError && convError.code !== 'PGRST116') throw convError
@@ -136,14 +136,19 @@ export default function ChatsPage() {
 
     // Subscribe to new messages
     const subscription = supabase
-      .channel('messages')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'messages',
-      }, (payload) => {
-        setMessages((current) => [...current, payload.new as Message])
-      })
+      .channel(`messages:${selectedUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${selectedUser.id}`,
+        },
+        (payload) => {
+          setMessages((current) => [...current, payload.new as Message])
+        }
+      )
       .subscribe()
 
     return () => {
@@ -161,7 +166,7 @@ export default function ChatsPage() {
       const { data: existingConversation, error: convError } = await supabase
         .from('conversations')
         .select('id')
-        .or(`participants.cs.{${currentUser.id},${selectedUser.id}}`)
+        .or(`and(participants.cs.{${currentUser.id}},participants.cs.{${selectedUser.id}})`)
         .single()
 
       if (convError && convError.code !== 'PGRST116') throw convError
@@ -171,7 +176,11 @@ export default function ChatsPage() {
       } else {
         const { data: newConversation, error: newConvError } = await supabase
           .from('conversations')
-          .insert({})
+          .insert({
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            last_message_at: new Date().toISOString(),
+          })
           .select()
           .single()
         
@@ -251,18 +260,18 @@ export default function ChatsPage() {
                     {user.avatar_url ? (
                       <img
                         src={user.avatar_url}
-                        alt={user.full_name}
+                        alt={user.username}
                         className="w-full h-full rounded-full"
                       />
                     ) : (
                       <span className="text-gray-500">
-                        {user.full_name.charAt(0)}
+                        {user.username.charAt(0).toUpperCase()}
                       </span>
                     )}
                   </div>
                   <div className="ml-3">
-                    <p className="font-medium">{user.full_name}</p>
-                    <p className="text-sm text-gray-500">{user.username}</p>
+                    <div className="font-medium">{user.full_name}</div>
+                    <div className="text-sm text-gray-500">@{user.username}</div>
                   </div>
                 </div>
               </button>
@@ -282,18 +291,18 @@ export default function ChatsPage() {
                   {selectedUser.avatar_url ? (
                     <img
                       src={selectedUser.avatar_url}
-                      alt={selectedUser.full_name}
+                      alt={selectedUser.username}
                       className="w-full h-full rounded-full"
                     />
                   ) : (
                     <span className="text-gray-500">
-                      {selectedUser.full_name.charAt(0)}
+                      {selectedUser.username.charAt(0).toUpperCase()}
                     </span>
                   )}
                 </div>
                 <div className="ml-3">
-                  <p className="font-medium">{selectedUser.full_name}</p>
-                  <p className="text-sm text-gray-500">Online</p>
+                  <div className="font-medium">{selectedUser.full_name}</div>
+                  <div className="text-sm text-gray-500">@{selectedUser.username}</div>
                 </div>
               </div>
             </div>
@@ -304,16 +313,14 @@ export default function ChatsPage() {
                 <div
                   key={message.id}
                   className={`flex ${
-                    message.sender_id === currentUser?.id
-                      ? 'justify-end'
-                      : 'justify-start'
+                    message.sender_id === currentUser?.id ? 'justify-end' : 'justify-start'
                   }`}
                 >
                   <div
                     className={`max-w-[70%] rounded-lg p-3 ${
                       message.sender_id === currentUser?.id
                         ? 'bg-blue-500 text-white'
-                        : 'bg-gray-200'
+                        : 'bg-gray-200 text-gray-800'
                     }`}
                   >
                     {message.content}
@@ -330,11 +337,12 @@ export default function ChatsPage() {
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 rounded-full border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
                   type="submit"
-                  className="bg-blue-500 text-white px-6 py-2 rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  disabled={!newMessage.trim()}
+                  className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                 >
                   Send
                 </button>
@@ -342,8 +350,8 @@ export default function ChatsPage() {
             </form>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
-            Select a chat to start messaging
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-gray-500">Select a chat to start messaging</div>
           </div>
         )}
       </div>
